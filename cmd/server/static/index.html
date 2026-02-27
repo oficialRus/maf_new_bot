@@ -50,14 +50,14 @@
     </header>
     <div class="chat__messages" id="chat-messages">
       <div class="msg msg--bot">
-        <span class="msg__text">Здравствуйте! Задайте вопрос — постараюсь помочь.</span>
+        <span class="msg__text">Здравствуйте! Задайте вопрос — постараюсь помочь. Голосом: скажите «старт» — начнётся запись, «стоп» — отправится в чат и прозвучит ответ.</span>
       </div>
     </div>
     <form class="chat__form" id="chat-form">
-      <button type="button" class="chat__voice" id="chat-voice" aria-label="Голосовой ввод" title="Голосовой ввод">
+      <button type="button" class="chat__voice" id="chat-voice" aria-label="старт — запись, стоп — отправить" title="старт — начать запись, стоп — отправить в чат">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
       </button>
-      <textarea class="chat__input" id="chat-input" placeholder="Введите сообщение или нажмите микрофон..." rows="1" maxlength="2000"></textarea>
+      <textarea class="chat__input" id="chat-input" placeholder="Введите сообщение или нажмите микрофон и говорите..." rows="1" maxlength="2000"></textarea>
       <button type="submit" class="chat__send" aria-label="Отправить">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
       </button>

@@ -345,6 +345,17 @@ body {
   color: #ff6b6b;
 }
 
+.chat__voice--recording {
+  background: rgba(255, 0, 0, 0.35);
+  border-color: #ff4444;
+  color: #ff8888;
+  animation: pulse-mic 1s ease-in-out infinite;
+}
+
+@keyframes pulse-mic {
+  50% { opacity: 0.85; }
+}
+
 .chat__send {
   flex-shrink: 0;
   width: 44px;

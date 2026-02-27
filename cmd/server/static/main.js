@@ -43,7 +43,32 @@
   if (btnGoChat) btnGoChat.addEventListener('click', openChat);
   if (closeChatBtn) closeChatBtn.addEventListener('click', closeChat);
 
-  var CODEWORD = 'маф';
+  // Голосовые команды: «старт» — начать запись, «стоп» — закончить и отправить в чат
+  var START_WORD = 'старт';
+  var END_WORD = 'стоп';
+  var IDLE_BUFFER_MAX = 350;
+
+  function showVoiceStatus(text, className) {}
+
+  function isStartPhrase(s) {
+    if (!s || !s.length) return false;
+    var lower = s.toLowerCase().replace(/\s+/g, ' ').trim();
+    var words = lower.split(/\s+/);
+    for (var i = 0; i < words.length; i++) {
+      if (words[i].indexOf(START_WORD) !== -1 || START_WORD.indexOf(words[i]) === 0) return true;
+    }
+    return lower.indexOf(START_WORD) !== -1;
+  }
+
+  function isEndPhrase(s) {
+    if (!s || !s.length) return false;
+    var lower = s.toLowerCase().replace(/\s+/g, ' ').trim();
+    var words = lower.split(/\s+/);
+    for (var i = 0; i < words.length; i++) {
+      if (words[i].indexOf(END_WORD) !== -1 || END_WORD.indexOf(words[i]) === 0) return true;
+    }
+    return lower.indexOf(END_WORD) !== -1;
+  }
 
   function sendChatMessage(text, speakReply) {
     addMessage(text, true);
@@ -93,20 +118,27 @@
       if (!text) return;
       chatInput.value = '';
       chatInput.style.height = 'auto';
-      var isCodeword = text.toLowerCase().trim() === CODEWORD;
-      sendChatMessage(text, isCodeword);
+      sendChatMessage(text, false);
     });
   }
 
-  // ----- Wispr: запись чанками, кодовое слово "маф" — старт/стоп
-  var CHUNK_MS = 2500;
+  // ----- Голос: два режима
+  // 1) Нажми и говори: клик — начать запись, клик — остановить и отправить в чат
+  // 2) Wispr: «старт» / «стоп» (фоновая запись чанками)
+  var CHUNK_MS = 1000;
+  var CHUNK_MS_RECORDING = 3500;
   var voiceState = 'idle';
   var voiceBuffer = '';
+  var idleBuffer = '';
   var wisprStream = null;
   var wisprRecorder = null;
   var wisprChunks = [];
   var wisprTimer = null;
   var wisprActive = false;
+
+  var manualRecording = false;
+  var manualRecorder = null;
+  var manualChunks = [];
 
   function blobToBase64(blob) {
     return new Promise(function (resolve, reject) {
@@ -131,7 +163,7 @@
         audioContext.decodeAudioData(reader.result).then(function (audioBuffer) {
           var targetSampleRate = 16000;
           var ratio = targetSampleRate / audioBuffer.sampleRate;
-          var newLength = Math.floor(audioBuffer.length * ratio);
+          var newLength = Math.ceil(audioBuffer.length * ratio);
           var offline = new OfflineAudioContext(1, newLength, targetSampleRate);
           var source = offline.createBufferSource();
           source.buffer = audioBuffer;
@@ -174,45 +206,60 @@
   function processWisprText(text) {
     if (!text || !text.trim()) return;
     text = text.trim();
-    var lower = text.toLowerCase();
+    var lower = text.toLowerCase().replace(/\s+/g, ' ');
 
     if (voiceState === 'idle') {
-      if (lower.indexOf(CODEWORD) !== -1) {
+      idleBuffer += (idleBuffer ? ' ' : '') + text;
+      if (idleBuffer.length > IDLE_BUFFER_MAX) idleBuffer = idleBuffer.slice(-IDLE_BUFFER_MAX);
+      var combined = idleBuffer;
+      if (isStartPhrase(combined)) {
+        idleBuffer = '';
         voiceState = 'recording';
-        voiceBuffer = text.replace(new RegExp('^.*?' + CODEWORD + '\\s*', 'i'), '').trim();
+        var startIdx = combined.toLowerCase().indexOf(START_WORD);
+        var afterStart = startIdx !== -1 ? combined.slice(startIdx + START_WORD.length).trim() : combined;
+        voiceBuffer = afterStart.replace(/^\s*[\s,\.\-]+/, '').trim();
         if (chatVoiceBtn) {
           chatVoiceBtn.classList.add('chat__voice--active');
-          chatVoiceBtn.setAttribute('aria-label', 'Идёт запись — скажите «маф» чтобы отправить');
+          chatVoiceBtn.setAttribute('aria-label', 'Идёт запись — скажите «стоп» чтобы отправить');
         }
+        showVoiceStatus('Запись. Говорите, затем скажите «стоп».', 'is-recording');
       }
       return;
     }
 
     if (voiceState === 'recording') {
       voiceBuffer += (voiceBuffer ? ' ' : '') + text;
-      if (lower.indexOf(CODEWORD) !== -1) {
-        var message = voiceBuffer.replace(/\s*маф\s*$/i, '').trim();
+      if (isEndPhrase(voiceBuffer)) {
+        var lowerBuf = voiceBuffer.toLowerCase().replace(/\s+/g, ' ');
+        var endIdx = lowerBuf.lastIndexOf(END_WORD);
+        var message = endIdx !== -1 ? voiceBuffer.slice(0, endIdx).trim() : voiceBuffer.trim();
         voiceState = 'idle';
         voiceBuffer = '';
         if (chatVoiceBtn) {
           chatVoiceBtn.classList.remove('chat__voice--active');
           chatVoiceBtn.setAttribute('aria-label', 'Голосовой ввод');
         }
+        showVoiceStatus('Отправляю… Жду ответ.', 'is-listening');
         if (message) {
-          var isCodewordOnly = message.toLowerCase() === CODEWORD;
-          sendChatMessage(message, isCodewordOnly);
+          sendChatMessage(message, true);
         }
+        setTimeout(function () {
+          showVoiceStatus('Слушаю… Скажите «старт» — запись, «стоп» — отправить.', 'is-listening');
+        }, 2000);
       }
     }
   }
 
   function recordAndSendChunk() {
-    if (!wisprActive || !wisprStream || !screenChat.classList.contains('is-active')) return;
+    if (!wisprActive || !wisprStream || !screenChat.classList.contains('is-active') || manualRecording) return;
     wisprChunks = [];
+    var recorderOpts = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 128000 };
     try {
-      wisprRecorder = new MediaRecorder(wisprStream, { mimeType: 'audio/webm;codecs=opus' });
+      wisprRecorder = new MediaRecorder(wisprStream, recorderOpts);
     } catch (e) {
-      try { wisprRecorder = new MediaRecorder(wisprStream); } catch (e2) { return; }
+      try { wisprRecorder = new MediaRecorder(wisprStream, { audioBitsPerSecond: 128000 }); } catch (e2) {
+        try { wisprRecorder = new MediaRecorder(wisprStream); } catch (e3) { return; }
+      }
     }
     wisprRecorder.ondataavailable = function (e) {
       if (e.data.size) wisprChunks.push(e.data);
@@ -233,25 +280,39 @@
           if (xhr.status === 200) {
             try {
               var data = JSON.parse(xhr.responseText);
-              if (data.text) processWisprText(data.text);
-            } catch (err) {}
+              var heard = (data && data.text) ? data.text.trim() : '';
+              if (heard) {
+                showVoiceStatus('Слышу: «' + heard + '»', voiceState === 'recording' ? 'is-recording' : 'is-listening');
+                processWisprText(heard);
+              } else if (voiceState !== 'recording') {
+                showVoiceStatus('Слушаю… Скажите «старт» — запись, «стоп» — отправить.', 'is-listening');
+              }
+            } catch (err) {
+              showVoiceStatus('Ошибка ответа сервера.', 'is-error');
+            }
+          } else {
+            showVoiceStatus('Ошибка распознавания (код ' + xhr.status + '). Проверьте WISPR_API_KEY в .env', 'is-error');
           }
           scheduleNextChunk();
         };
-        xhr.onerror = function () { scheduleNextChunk(); };
+        xhr.onerror = function () {
+          showVoiceStatus('Ошибка связи с сервером распознавания.', 'is-error');
+          scheduleNextChunk();
+        };
         xhr.send(JSON.stringify({ audio: base64 }));
       }).catch(function () { scheduleNextChunk(); });
     };
     wisprRecorder.start();
+    var chunkMs = voiceState === 'recording' ? CHUNK_MS_RECORDING : CHUNK_MS;
     wisprTimer = setTimeout(function () {
       if (wisprRecorder && wisprRecorder.state === 'recording') wisprRecorder.stop();
-    }, CHUNK_MS);
+    }, chunkMs);
   }
 
   function scheduleNextChunk() {
     wisprTimer = null;
-    if (!wisprActive || !screenChat.classList.contains('is-active')) return;
-    wisprTimer = setTimeout(recordAndSendChunk, 300);
+    if (!wisprActive || !screenChat.classList.contains('is-active') || manualRecording) return;
+    wisprTimer = setTimeout(recordAndSendChunk, 80);
   }
 
   function startWisprListening() {
@@ -260,13 +321,25 @@
     wisprActive = true;
     voiceState = 'idle';
     voiceBuffer = '';
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+    var audioOpts = {
+      audio: {
+        channelCount: 1,
+        sampleRate: { ideal: 48000 },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    };
+    navigator.mediaDevices.getUserMedia(audioOpts).then(function (stream) {
       wisprStream = stream;
-      if (chatVoiceBtn) chatVoiceBtn.setAttribute('aria-label', 'Скажите «маф» — начать запись, «маф» — отправить');
+      idleBuffer = '';
+      if (chatVoiceBtn) chatVoiceBtn.setAttribute('aria-label', 'Скажите «старт» — запись, «стоп» — отправить');
+      showVoiceStatus('Слушаю… Скажите «старт» — запись, «стоп» — отправить.', 'is-listening');
       scheduleNextChunk();
     }).catch(function () {
       wisprActive = false;
       if (chatVoiceBtn) chatVoiceBtn.setAttribute('title', 'Нет доступа к микрофону');
+      showVoiceStatus('Нет доступа к микрофону. Разрешите микрофон в браузере.', 'is-error');
     });
   }
 
@@ -286,10 +359,12 @@
     }
     voiceState = 'idle';
     voiceBuffer = '';
+    idleBuffer = '';
     if (chatVoiceBtn) {
       chatVoiceBtn.classList.remove('chat__voice--active');
       chatVoiceBtn.setAttribute('aria-label', 'Голосовой ввод');
     }
+    showVoiceStatus('Слушаю… Скажите «старт» — запись, «стоп» — отправить.', '');
   }
 
   // Автовысота textarea
@@ -300,8 +375,125 @@
     });
   }
 
-  // Кнопка микрофона — индикатор: красная, когда идёт запись по «маф»
+  function startManualRecord() {
+    if (manualRecording) return;
+    var stream = wisprStream;
+    if (!stream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      var audioOpts = {
+        audio: {
+          channelCount: 1,
+          sampleRate: { ideal: 48000 },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      };
+      navigator.mediaDevices.getUserMedia(audioOpts).then(function (s) {
+        wisprStream = wisprStream || s;
+        startManualRecordWithStream(wisprStream);
+      }).catch(function () {
+        addMessage('Нет доступа к микрофону.', false);
+      });
+      return;
+    }
+    if (stream) startManualRecordWithStream(stream);
+  }
+
+  function startManualRecordWithStream(stream) {
+    manualChunks = [];
+    var manualOpts = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 128000 };
+    try {
+      manualRecorder = new MediaRecorder(stream, manualOpts);
+    } catch (e) {
+      try { manualRecorder = new MediaRecorder(stream, { audioBitsPerSecond: 128000 }); } catch (e2) {
+        try { manualRecorder = new MediaRecorder(stream); } catch (e3) { return; }
+      }
+    }
+    manualRecorder.ondataavailable = function (e) {
+      if (e.data.size) manualChunks.push(e.data);
+    };
+    manualRecorder.onstop = function () {
+      if (manualChunks.length === 0) {
+        manualRecording = false;
+        if (chatVoiceBtn) {
+          chatVoiceBtn.classList.remove('chat__voice--recording');
+          chatVoiceBtn.setAttribute('aria-label', 'Говорить голосом');
+        }
+        scheduleNextChunk();
+        return;
+      }
+      var webmBlob = new Blob(manualChunks, { type: 'audio/webm' });
+      convertWebMToWAV(webmBlob).then(function (wavBlob) {
+        return blobToBase64(wavBlob);
+      }).then(function (base64) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/transcribe');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function () {
+          manualRecording = false;
+          if (chatVoiceBtn) {
+            chatVoiceBtn.classList.remove('chat__voice--recording');
+            chatVoiceBtn.setAttribute('aria-label', 'Говорить голосом');
+          }
+          scheduleNextChunk();
+          if (xhr.status === 200) {
+            try {
+              var data = JSON.parse(xhr.responseText);
+              if (data.text && data.text.trim()) {
+                sendChatMessage(data.text.trim(), true);
+              } else {
+                addMessage('Речь не распознана. Попробуйте ещё раз.', false);
+              }
+            } catch (err) {
+              addMessage('Ошибка распознавания.', false);
+            }
+          } else {
+            addMessage('Ошибка распознавания речи. Проверьте WISPR_API_KEY в .env', false);
+          }
+        };
+        xhr.onerror = function () {
+          manualRecording = false;
+          if (chatVoiceBtn) {
+            chatVoiceBtn.classList.remove('chat__voice--recording');
+            chatVoiceBtn.setAttribute('aria-label', 'Говорить голосом');
+          }
+          scheduleNextChunk();
+          addMessage('Ошибка соединения с сервером.', false);
+        };
+        xhr.send(JSON.stringify({ audio: base64 }));
+      }).catch(function () {
+        manualRecording = false;
+        if (chatVoiceBtn) {
+          chatVoiceBtn.classList.remove('chat__voice--recording');
+          chatVoiceBtn.setAttribute('aria-label', 'Говорить голосом');
+        }
+        scheduleNextChunk();
+        addMessage('Ошибка обработки записи.', false);
+      });
+    };
+    manualRecorder.start();
+    manualRecording = true;
+    if (chatVoiceBtn) {
+      chatVoiceBtn.classList.add('chat__voice--recording');
+      chatVoiceBtn.setAttribute('aria-label', 'Нажмите снова, чтобы отправить');
+    }
+  }
+
+  function stopManualRecord() {
+    if (!manualRecording || !manualRecorder || manualRecorder.state !== 'recording') return;
+    manualRecorder.stop();
+    manualRecorder = null;
+  }
+
+  // Кнопка микрофона: нажми — говори, нажми снова — отправить. Или скажи «МАФ» — начать запись, «МАФ» — отправить
   if (chatVoiceBtn) {
-    chatVoiceBtn.setAttribute('title', 'Скажите «маф» — начать запись, «маф» — отправить (Wispr)');
+    chatVoiceBtn.setAttribute('title', '«старт» — начать запись, «стоп» — отправить в чат. Или нажмите кнопку.');
+    chatVoiceBtn.addEventListener('click', function () {
+      if (manualRecording) {
+        stopManualRecord();
+      } else {
+        startManualRecord();
+      }
+    });
   }
 })();
