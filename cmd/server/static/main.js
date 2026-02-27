@@ -46,28 +46,36 @@
   // Голосовые команды: «старт» — начать запись, «стоп» — закончить и отправить в чат
   var START_WORD = 'старт';
   var END_WORD = 'стоп';
+  var START_VARIANTS = ['старт', 'стар', 'старат', 'стат', 'start'];
+  var END_VARIANTS = ['стоп', 'стопп', 'стопе', 'стооп', 'stop'];
   var IDLE_BUFFER_MAX = 350;
 
   function showVoiceStatus(text, className) {}
 
+  function textContainsWord(text, word) {
+    if (!text || !word) return false;
+    var t = (' ' + text + ' ').replace(/\s+/g, ' ');
+    return t.indexOf(' ' + word + ' ') !== -1;
+  }
+
   function isStartPhrase(s) {
     if (!s || !s.length) return false;
     var lower = s.toLowerCase().replace(/\s+/g, ' ').trim();
-    var words = lower.split(/\s+/);
-    for (var i = 0; i < words.length; i++) {
-      if (words[i].indexOf(START_WORD) !== -1 || START_WORD.indexOf(words[i]) === 0) return true;
+    for (var i = 0; i < START_VARIANTS.length; i++) {
+      if (lower === START_VARIANTS[i] || textContainsWord(lower, START_VARIANTS[i])) return true;
     }
-    return lower.indexOf(START_WORD) !== -1;
+    if (lower.indexOf('старт') !== -1 || lower.indexOf('start') !== -1) return true;
+    return false;
   }
 
   function isEndPhrase(s) {
     if (!s || !s.length) return false;
     var lower = s.toLowerCase().replace(/\s+/g, ' ').trim();
-    var words = lower.split(/\s+/);
-    for (var i = 0; i < words.length; i++) {
-      if (words[i].indexOf(END_WORD) !== -1 || END_WORD.indexOf(words[i]) === 0) return true;
+    for (var i = 0; i < END_VARIANTS.length; i++) {
+      if (lower === END_VARIANTS[i] || textContainsWord(lower, END_VARIANTS[i])) return true;
     }
-    return lower.indexOf(END_WORD) !== -1;
+    if (lower.indexOf('стоп') !== -1 || lower.indexOf('stop') !== -1) return true;
+    return false;
   }
 
   function sendChatMessage(text, speakReply) {
@@ -125,8 +133,8 @@
   // ----- Голос: два режима
   // 1) Нажми и говори: клик — начать запись, клик — остановить и отправить в чат
   // 2) Wispr: «старт» / «стоп» (фоновая запись чанками)
-  var CHUNK_MS = 1000;
-  var CHUNK_MS_RECORDING = 3500;
+  var CHUNK_MS = 600;
+  var CHUNK_MS_RECORDING = 8000;
   var voiceState = 'idle';
   var voiceBuffer = '';
   var idleBuffer = '';
@@ -215,8 +223,21 @@
       if (isStartPhrase(combined)) {
         idleBuffer = '';
         voiceState = 'recording';
-        var startIdx = combined.toLowerCase().indexOf(START_WORD);
-        var afterStart = startIdx !== -1 ? combined.slice(startIdx + START_WORD.length).trim() : combined;
+        var lowerCombined = combined.toLowerCase();
+        var startIdx = -1;
+        var startLen = 0;
+        for (var si = 0; si < START_VARIANTS.length; si++) {
+          var p = lowerCombined.indexOf(START_VARIANTS[si]);
+          if (p !== -1 && (startIdx === -1 || p < startIdx)) {
+            startIdx = p;
+            startLen = START_VARIANTS[si].length;
+          }
+        }
+        if (startIdx === -1 && lowerCombined.indexOf('старт') !== -1) {
+          startIdx = lowerCombined.indexOf('старт');
+          startLen = 4;
+        }
+        var afterStart = startIdx !== -1 ? combined.slice(startIdx + startLen).trim() : combined;
         voiceBuffer = afterStart.replace(/^\s*[\s,\.\-]+/, '').trim();
         if (chatVoiceBtn) {
           chatVoiceBtn.classList.add('chat__voice--active');
@@ -231,7 +252,12 @@
       voiceBuffer += (voiceBuffer ? ' ' : '') + text;
       if (isEndPhrase(voiceBuffer)) {
         var lowerBuf = voiceBuffer.toLowerCase().replace(/\s+/g, ' ');
-        var endIdx = lowerBuf.lastIndexOf(END_WORD);
+        var endIdx = -1;
+        for (var ei = 0; ei < END_VARIANTS.length; ei++) {
+          var q = lowerBuf.lastIndexOf(END_VARIANTS[ei]);
+          if (q !== -1 && (endIdx === -1 || q > endIdx)) endIdx = q;
+        }
+        if (endIdx === -1 && lowerBuf.indexOf('стоп') !== -1) endIdx = lowerBuf.lastIndexOf('стоп');
         var message = endIdx !== -1 ? voiceBuffer.slice(0, endIdx).trim() : voiceBuffer.trim();
         voiceState = 'idle';
         voiceBuffer = '';
@@ -312,7 +338,8 @@
   function scheduleNextChunk() {
     wisprTimer = null;
     if (!wisprActive || !screenChat.classList.contains('is-active') || manualRecording) return;
-    wisprTimer = setTimeout(recordAndSendChunk, 80);
+    var delay = voiceState === 'recording' ? 100 : 30;
+    wisprTimer = setTimeout(recordAndSendChunk, delay);
   }
 
   function startWisprListening() {
