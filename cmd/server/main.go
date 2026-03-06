@@ -3,16 +3,48 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 //go:embed static/*
 var staticFS embed.FS
+
+const textsDir = "data/texts"
+const maxContextLen = 30000
+
+func loadTextContext() string {
+	entries, err := os.ReadDir(textsDir)
+	if err != nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(textsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		sb.WriteString("--- " + entry.Name() + " ---\n")
+		sb.Write(data)
+		sb.WriteString("\n\n")
+	}
+	result := sb.String()
+	if len(result) > maxContextLen {
+		result = result[:maxContextLen] + "\n...(текст обрезан)..."
+	}
+	return result
+}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -22,20 +54,24 @@ func main() {
 		log.Printf("Предупреждение: OPENAI_API_KEY не задан, чат с GPT не будет работать")
 	}
 
-	// Отдаём статику (фронт) из встроенной папки static
+	if err := os.MkdirAll(textsDir, 0755); err != nil {
+		log.Printf("Не удалось создать директорию %s: %v", textsDir, err)
+	}
+
 	staticContent, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		log.Fatal(err)
 	}
 	http.Handle("/", http.FileServer(http.FS(staticContent)))
 
-	// API для здоровья сервиса
+	// WebSocket — голосовой конвейер (transcribe → chat → tts)
+	http.HandleFunc("/ws", handleWS)
+
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Проверка ключа OpenAI
 	http.HandleFunc("/api/check-key", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if os.Getenv("OPENAI_API_KEY") == "" {
@@ -46,7 +82,7 @@ func main() {
 			})
 			return
 		}
-		reply, err := callOpenAI("Ответь одним словом: ок")
+		reply, err := callOpenAI("Ответь одним словом: ок", "")
 		if err != nil {
 			msg := err.Error()
 			if e, ok := err.(*openAIError); ok {
@@ -68,7 +104,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "reply": reply})
 	})
 
-	// Чат с ChatGPT
+	// Чат с ChatGPT (с контекстом загруженных текстов)
 	http.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -81,7 +117,9 @@ func main() {
 			http.Error(w, `{"error":"message required"}`, http.StatusBadRequest)
 			return
 		}
-		reply, err := callOpenAI(req.Message)
+
+		ctx := loadTextContext()
+		reply, err := callOpenAI(req.Message, ctx)
 		if err != nil {
 			log.Printf("openai: %v", err)
 			msg := err.Error()
@@ -102,7 +140,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"reply": reply})
 	})
 
-	// Транскрипция через Wispr (голос → текст)
+	// Транскрипция через Wispr
 	http.HandleFunc("/api/transcribe", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -123,6 +161,116 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"text": text})
+	})
+
+	// TTS — озвучка текста через OpenAI
+	http.HandleFunc("/api/tts", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+			http.Error(w, `{"error":"text required"}`, http.StatusBadRequest)
+			return
+		}
+		audio, err := synthesizeSpeech(req.Text)
+		if err != nil {
+			log.Printf("tts: %v", err)
+			http.Error(w, `{"error":"tts failed"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Header().Set("Content-Length", strconv.Itoa(len(audio)))
+		w.Write(audio)
+	})
+
+	// Загрузка текстовых файлов
+	http.HandleFunc("/api/upload-text", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		r.ParseMultipartForm(10 << 20) // 10 MB
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, `{"error":"file required"}`, http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		name := filepath.Base(header.Filename)
+		name = strings.ReplaceAll(name, "..", "")
+		if name == "" || name == "." {
+			name = "document.txt"
+		}
+
+		dst, err := os.Create(filepath.Join(textsDir, name))
+		if err != nil {
+			http.Error(w, `{"error":"cannot save file"}`, http.StatusInternalServerError)
+			return
+		}
+		defer dst.Close()
+
+		if _, err := io.Copy(dst, file); err != nil {
+			http.Error(w, `{"error":"cannot write file"}`, http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Загружен текст: %s", name)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"ok": "true", "name": name})
+	})
+
+	// Список загруженных текстов
+	http.HandleFunc("/api/texts", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			var req struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+				http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+				return
+			}
+			safe := filepath.Base(req.Name)
+			path := filepath.Join(textsDir, safe)
+			if err := os.Remove(path); err != nil {
+				http.Error(w, `{"error":"delete failed"}`, http.StatusInternalServerError)
+				return
+			}
+			log.Printf("Удалён текст: %s", safe)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+			return
+		}
+
+		entries, err := os.ReadDir(textsDir)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"files":[]}`))
+			return
+		}
+		var files []map[string]interface{}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			files = append(files, map[string]interface{}{
+				"name": e.Name(),
+				"size": info.Size(),
+			})
+		}
+		if files == nil {
+			files = []map[string]interface{}{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"files": files})
 	})
 
 	addr := ":8080"

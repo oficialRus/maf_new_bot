@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Военно-космическая академия им. А.Ф. Можайского</title>
+  <title>МАФ — Голосовой ассистент</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -12,56 +12,132 @@
 <body>
   <!-- Экран: лендинг -->
   <div class="screen screen--landing" id="screen-landing">
-    <header class="header">
-      <div class="header__logo">
-        <div class="logo-text">
-          <span class="logo-title">Военно-космическая академия им. А.Ф. Можайского</span>
-          <span class="logo-tagline">Летим к звёздам.</span>
+    <div class="robot-layout">
+      <header class="robot-header">
+        <div class="robot-header__brand">
+          <span class="robot-header__abbr">МАФ</span>
+          <span class="robot-header__title">Интерфейс академии Можайского</span>
         </div>
-      </div>
-      <div class="header__lang">
-        <button type="button" class="lang-btn" aria-label="Язык">RU</button>
-      </div>
-    </header>
+        <div class="robot-header__status">
+          <span class="robot-header__status-dot"></span>
+          ONLINE
+        </div>
+      </header>
 
-    <main class="hero">
-      <section class="hero__content">
-        <h1 class="hero__title">
-          <span class="hero__title-ma">МА</span><span class="hero__title-f">Ф.</span>
-        </h1>
-        <p class="hero__subtitle">Можайский Александр Фёдорович</p>
-        <p class="hero__desc">Простые решения для сложных задач.</p>
-        <div class="hero__actions">
-          <button type="button" class="btn btn--primary" id="btn-go-chat">ПЕРЕЙТИ В ЧАТ</button>
-          <button type="button" class="btn btn--outline">УЗНАТЬ ПОДРОБНЕЕ</button>
+      <div class="robot-face">
+        <div class="robot-face__eye robot-face__eye--left">
+          <div class="eye" aria-hidden="true">
+            <div class="eye__inner">
+              <div class="eye__iris"><div class="eye__pupil"><span class="eye__highlight"></span></div></div>
+              <div class="eye__glow"></div>
+            </div>
+            <div class="eye__lid eye__lid--top"></div>
+            <div class="eye__lid eye__lid--bottom"></div>
+          </div>
         </div>
-      </section>
-    </main>
+
+        <main class="robot-face__center">
+          <p class="robot-face__label">Виртуальный ассистент академии</p>
+          <h1 class="robot-face__title">Смотри в глаза<br />роботу МАФ</h1>
+          <p class="robot-face__subtitle">
+            Нажми кнопку — робот начнёт слушать тебя и отвечать голосом.
+            Никаких кнопок, просто говори.
+          </p>
+          <div class="robot-face__actions">
+            <button type="button" class="btn btn--primary" id="btn-go-chat">ВОЙТИ В ЧАТ</button>
+          </div>
+        </main>
+
+        <div class="robot-face__eye robot-face__eye--right">
+          <div class="eye" aria-hidden="true">
+            <div class="eye__inner">
+              <div class="eye__iris"><div class="eye__pupil"><span class="eye__highlight"></span></div></div>
+              <div class="eye__glow"></div>
+            </div>
+            <div class="eye__lid eye__lid--top"></div>
+            <div class="eye__lid eye__lid--bottom"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="upload-section" id="upload-section">
+        <div class="upload-header">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <line x1="9" y1="15" x2="12" y2="12"/>
+            <line x1="15" y1="15" x2="12" y2="12"/>
+          </svg>
+          <span class="upload-header__title">База знаний</span>
+          <span class="upload-header__count" id="upload-count"></span>
+        </div>
+        <div class="upload-body">
+          <input type="file" id="file-input" accept=".txt,.md,.text" multiple hidden />
+          <button type="button" class="upload-btn" id="btn-upload">
+            Загрузить текстовые файлы (.txt)
+          </button>
+          <ul class="upload-list" id="upload-list"></ul>
+        </div>
+      </div>
+
+      <footer class="robot-footer">
+        <span class="robot-footer__hint">
+          Загрузите тексты — робот будет использовать их как базу знаний при ответах.
+        </span>
+      </footer>
+    </div>
   </div>
 
-  <!-- Экран: чат -->
+  <!-- Экран: голосовой диалог — лицо робота (глаза + рот) -->
   <div class="screen screen--chat" id="screen-chat" hidden>
-    <header class="chat-header">
-      <button type="button" class="chat-header__back" id="close-chat" aria-label="Назад">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-        Назад
-      </button>
-      <span class="chat-header__title">Чат с МАФ</span>
-    </header>
-    <div class="chat__messages" id="chat-messages">
-      <div class="msg msg--bot">
-        <span class="msg__text">Здравствуйте! Задайте вопрос — постараюсь помочь. Голосом: скажите «старт» — начнётся запись, «стоп» — отправится в чат и прозвучит ответ.</span>
+    <div class="robot-layout robot-layout--voice">
+      <header class="robot-header">
+        <button type="button" class="voice-back" id="close-chat" aria-label="Назад">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="robot-header__status">
+          <span class="robot-header__status-dot"></span>
+          <span id="robot-state-label">READY</span>
+        </div>
+      </header>
+
+      <div class="robot-voice-face" id="robot-face">
+        <div class="robot-face__eye robot-face__eye--left">
+          <div class="eye" aria-hidden="true">
+            <div class="eye__inner">
+              <div class="eye__iris"><div class="eye__pupil"><span class="eye__highlight"></span></div></div>
+              <div class="eye__glow"></div>
+            </div>
+            <div class="eye__lid eye__lid--top"></div>
+            <div class="eye__lid eye__lid--bottom"></div>
+          </div>
+        </div>
+
+        <div class="robot-voice-center">
+          <div class="robot-mouth" id="robot-mouth">
+            <div class="mouth-curve" aria-hidden="true"></div>
+          </div>
+          <div class="robot-voice-footer">
+            <p class="robot-status" id="robot-status">Подключаюсь…</p>
+            <p class="robot-heard" id="robot-heard"></p>
+          </div>
+        </div>
+
+        <div class="robot-face__eye robot-face__eye--right">
+          <div class="eye" aria-hidden="true">
+            <div class="eye__inner">
+              <div class="eye__iris"><div class="eye__pupil"><span class="eye__highlight"></span></div></div>
+              <div class="eye__glow"></div>
+            </div>
+            <div class="eye__lid eye__lid--top"></div>
+            <div class="eye__lid eye__lid--bottom"></div>
+          </div>
+        </div>
       </div>
     </div>
-    <form class="chat__form" id="chat-form">
-      <button type="button" class="chat__voice" id="chat-voice" aria-label="старт — запись, стоп — отправить" title="старт — начать запись, стоп — отправить в чат">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
-      </button>
-      <textarea class="chat__input" id="chat-input" placeholder="Введите сообщение или нажмите микрофон и говорите..." rows="1" maxlength="2000"></textarea>
-      <button type="submit" class="chat__send" aria-label="Отправить">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-      </button>
-    </form>
   </div>
 
   <script src="main.js"></script>
