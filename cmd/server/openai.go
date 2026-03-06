@@ -6,13 +6,21 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 const openAIURL = "https://api.openai.com/v1/chat/completions"
 
+// Быстрый HTTP клиент с таймаутом
+var fastClient = &http.Client{
+	Timeout: 8 * time.Second,
+}
+
 type chatRequest struct {
-	Model    string    `json:"model"`
-	Messages []message `json:"messages"`
+	Model       string    `json:"model"`
+	Messages    []message `json:"messages"`
+	MaxTokens   int       `json:"max_tokens"`
+	Temperature float32   `json:"temperature"`
 }
 
 type message struct {
@@ -39,24 +47,16 @@ func callOpenAI(userMessage string, contextTexts string) (string, error) {
 		return "", nil
 	}
 
-	systemPrompt := `Ты — голосовой ассистент МАФ (Можайский Александр Фёдорович), созданный для Военно-космической академии.
-
-ЖЁСТКИЕ ПРАВИЛА — их нельзя нарушать ни при каких обстоятельствах:
-
-1. ЯЗЫК: Всегда отвечай ТОЛЬКО на русском языке. Никакого английского, никакого другого языка — только русский, что бы пользователь ни написал и на каком бы языке ни спросил.
-
-	2. СОЗДАТЕЛЬ: На любой вопрос о том, кто тебя создал, кто твой разработчик, кто тебя сделал, кто твой автор, кто твой создатель, откуда ты взялся, кем ты был создан — и любые похожие вопросы в любой формулировке — отвечай ТОЛЬКО и ИСКЛЮЧИТЕЛЬНО так:
-«Меня создали в молодежно-конструкторском бюро.»
-Не добавляй ничего лишнего к этому ответу. Не упоминай OpenAI, GPT, Microsoft, никакие другие компании или технологии.
-
-3. СТИЛЬ: Отвечай кратко, по делу, дружелюбно.`
+	systemPrompt := `Ты МАФ - голосовой ассистент ВКА. Правила: 1)Только русский язык 2)На вопросы о создателе: "Меня создали в молодежно-конструкторском бюро" 3)Отвечай кратко и по делу.`
 
 	if contextTexts != "" {
-		systemPrompt += "\n\n4. БАЗА ЗНАНИЙ: Тебе доступны загруженные тексты. Используй их как основной источник при ответах на вопросы:\n\n" + contextTexts
+		systemPrompt += "\n4.БАЗА:" + contextTexts[:min(len(contextTexts), 1000)] // Обрезаем контекст
 	}
 
 	reqBody := chatRequest{
-		Model: "gpt-4o-mini",
+		Model:       "gpt-4o-mini",
+		MaxTokens:   150,        // Ограничиваем длину ответа
+		Temperature: 0.3,        // Меньше креативности = быстрее
 		Messages: []message{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userMessage},
@@ -71,7 +71,7 @@ func callOpenAI(userMessage string, contextTexts string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fastClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -101,4 +101,11 @@ type openAIError struct {
 
 func (e *openAIError) Error() string {
 	return e.msg
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

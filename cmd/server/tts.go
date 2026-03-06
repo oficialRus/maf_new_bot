@@ -7,9 +7,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 const ttsURL = "https://api.openai.com/v1/audio/speech"
+
+// Быстрый HTTP клиент для TTS
+var fastTTSClient = &http.Client{
+	Timeout: 10 * time.Second,
+}
 
 func synthesizeSpeech(text string) ([]byte, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -17,10 +23,16 @@ func synthesizeSpeech(text string) ([]byte, error) {
 		return nil, fmt.Errorf("OPENAI_API_KEY не задан")
 	}
 
+	// Ограничиваем длину текста для TTS
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
+
 	payload, _ := json.Marshal(map[string]interface{}{
-		"model": "tts-1-hd",
-		"voice": "onyx",
-		"input": text,
+		"model":  "tts-1",    // Быстрая модель вместо tts-1-hd
+		"voice":  "onyx",
+		"input":  text,
+		"speed":  1.2,        // Немного ускоряем речь
 	})
 
 	req, err := http.NewRequest(http.MethodPost, ttsURL, bytes.NewReader(payload))
@@ -30,7 +42,7 @@ func synthesizeSpeech(text string) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fastTTSClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

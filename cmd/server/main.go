@@ -1,16 +1,25 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"embed"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"io/fs"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -20,6 +29,56 @@ var staticFS embed.FS
 
 const textsDir = "data/texts"
 const maxContextLen = 30000
+
+// Генерируем самоподписанный сертификат для HTTPS
+func generateSelfSignedCert() (tls.Certificate, error) {
+	// Создаем приватный ключ
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	// Создаем шаблон сертификата
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "localhost",
+		},
+		DNSNames:    []string{"localhost"},
+		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(365 * 24 * time.Hour), // 1 год
+		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	// Создаем сертификат
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	// Сохраняем сертификат в файл для информации
+	os.MkdirAll("certs", 0755)
+	certOut, err := os.Create("certs/localhost.crt")
+	if err == nil {
+		pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+		certOut.Close()
+	}
+
+	// Сохраняем ключ в файл для информации  
+	keyOut, err := os.Create("certs/localhost.key")
+	if err == nil {
+		pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+		keyOut.Close()
+	}
+
+	// Возвращаем TLS сертификат
+	return tls.X509KeyPair(
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}),
+	)
+}
 
 func loadTextContext() string {
 	entries, err := os.ReadDir(textsDir)
@@ -273,9 +332,39 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"files": files})
 	})
 
-	addr := ":8080"
-	log.Printf("Сервер запущен на http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal(err)
+	// Проверяем, нужно ли запускать HTTPS
+	useHTTPS := os.Getenv("USE_HTTPS") == "true"
+	
+	if useHTTPS {
+		// Генерируем самоподписанный сертификат или загружаем существующий
+		cert, err := generateSelfSignedCert()
+		if err != nil {
+			log.Fatalf("Не удалось создать SSL сертификат: %v", err)
+		}
+
+		// Настройка TLS сервера
+		server := &http.Server{
+			Addr: ":8443",
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			},
+		}
+
+		log.Println("🔒 HTTPS сервер запущен на https://localhost:8443")
+		log.Println("📁 SSL сертификаты сохранены в certs/localhost.crt и certs/localhost.key")
+		log.Println("⚠️  Это самоподписанный сертификат - браузер покажет предупреждение")
+		log.Println("🌐 Откройте: https://localhost:8443")
+
+		if err := server.ListenAndServeTLS("", ""); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		// Запуск обычного HTTP сервера
+		addr := ":8080"
+		log.Printf("HTTP сервер запущен на http://localhost%s", addr)
+		log.Println("💡 Для HTTPS режима установите переменную USE_HTTPS=true в .env")
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

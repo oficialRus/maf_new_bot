@@ -314,6 +314,14 @@
       }
     };
 
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      active = false;
+      setState('idle');
+      if (robotStatus) robotStatus.textContent = 'Микрофон недоступен. Откройте сайт по HTTPS или через localhost.';
+      console.error('getUserMedia not supported: page must be served over HTTPS or localhost');
+      return;
+    }
+
     navigator.mediaDevices.getUserMedia(audioOpts).then(function (s) {
       if (!active) { s.getTracks().forEach(function (t) { t.stop(); }); return; }
       stream = s;

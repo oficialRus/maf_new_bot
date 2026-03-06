@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔒 SSL Тест Сервер</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        .lock-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            font-weight: 300;
+        }
+
+        .status {
+            background: rgba(46, 204, 113, 0.2);
+            border: 1px solid rgba(46, 204, 113, 0.5);
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .info {
+            background: rgba(52, 152, 219, 0.2);
+            border: 1px solid rgba(52, 152, 219, 0.5);
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            text-align: left;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 0.5rem;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        #sslInfo {
+            font-family: monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .warning {
+            background: rgba(230, 126, 34, 0.2);
+            border: 1px solid rgba(230, 126, 34, 0.5);
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="lock-icon">🔒</div>
+        <h1>SSL Сервер Работает!</h1>
+        
+        <div class="status">
+            <h3>✅ HTTPS Подключение Активно</h3>
+            <p>Ваш сервер успешно использует SSL/TLS шифрование</p>
+        </div>
+
+        <div class="info" id="sslInfo">
+            <h4>📊 Информация о соединении:</h4>
+            <div id="connectionInfo">Загрузка...</div>
+        </div>
+
+        <div class="warning">
+            <h4>⚠️ Предупреждение</h4>
+            <p>Это самоподписанный сертификат для разработки. Браузер может показывать предупреждение о безопасности.</p>
+        </div>
+
+        <div>
+            <button class="btn" onclick="testSSL()">🔄 Проверить SSL</button>
+            <a href="/api/health" class="btn">🩺 API Health</a>
+            <a href="http://localhost:8080" class="btn">📡 HTTP Версия</a>
+        </div>
+    </div>
+
+    <script>
+        function updateConnectionInfo() {
+            const info = document.getElementById('connectionInfo');
+            const protocol = location.protocol;
+            const host = location.host;
+            const url = location.href;
+            
+            info.innerHTML = `
+                Протокол: ${protocol}<br>
+                Хост: ${host}<br>
+                URL: ${url}<br>
+                User Agent: ${navigator.userAgent.split(' ')[0]}...<br>
+                Время: ${new Date().toLocaleString('ru-RU')}
+            `;
+        }
+
+        async function testSSL() {
+            try {
+                const response = await fetch('/api/ssl-test');
+                const data = await response.json();
+                
+                document.getElementById('connectionInfo').innerHTML = `
+                    ${document.getElementById('connectionInfo').innerHTML}<br>
+                    <strong>SSL Test Result:</strong><br>
+                    ${data.message}<br>
+                    Protocol: ${data.protocol}<br>
+                    Status: ${response.status} ${response.statusText}
+                `;
+            } catch (error) {
+                console.error('SSL test failed:', error);
+            }
+        }
+
+        // Обновляем информацию при загрузке
+        updateConnectionInfo();
+        
+        // Обновляем каждые 30 секунд
+        setInterval(updateConnectionInfo, 30000);
+    </script>
+</body>
+</html>

@@ -5,9 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 )
 
 const wisprAPIURL = "https://platform-api.wisprflow.ai/api/v1/dash/api"
+
+// Быстрый HTTP клиент для Wispr
+var fastWisprClient = &http.Client{
+	Timeout: 5 * time.Second,
+}
 
 type wisprRequest struct {
 	Audio   string   `json:"audio"`
@@ -55,7 +61,7 @@ func transcribeWispr(base64Audio string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fastWisprClient.Do(req)
 	if err != nil {
 		return "", err
 	}
